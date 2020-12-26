@@ -19,7 +19,8 @@ class Vehicle:
             # self.passengers_list.append(passenger)
 
         elif passenger.is_dropped():
-            self.onboard_passengers.remove(passenger)
+            if passenger in self.onboard_passengers:
+                self.onboard_passengers.remove(passenger)
             heapq.heapify(self.onboard_passengers)
 
     def is_full(self):

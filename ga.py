@@ -6,6 +6,7 @@ import openpyxl
 import random
 import heapq
 import math
+import time
 
 from enum import Enum
 from collections import defaultdict
@@ -34,6 +35,7 @@ class Chromo(object):
         self.routes = routes
         self.fitness = fitness
         self.key = lambda x:x
+        self.gen_random()
 
     def generate_route(self):
         self.routes = []
@@ -41,7 +43,7 @@ class Chromo(object):
             route = []
             vehicle = deepcopy(GA.vehicles[i])
 
-            passengers = [deepcopy(GA.passengers[j]) for j in range(len(GA.passengers)) if self.chromo[i][j]!=0]
+            passengers = [deepcopy(GA.passengers[j]) for j in range(1, len(GA.passengers)+1) if self.chromo[i][j]!=0]
             # passengers = [(p.get_expected_time(), p) for p in passengers_raw]
             heapq.heapify(passengers)
 
@@ -68,36 +70,22 @@ class Chromo(object):
                     heapq.heapify(passengers)
                 else:
                     heapq.heappush(passengers, VIP)
-
             self.routes.append(route)
 
-    # TODO: --------------
-    """
-    punishments:
-        pickup:
-        punishment += PP*(current_time - pickup_late (if > 0))
-
-        dropoff:
-        punishment += DP*(current_time - dropoff_late (if > 0))
-
-        riding:
-        punishment += RP*(dropoff_time - pickup_time)
-
-        punishment += TDP*total_driving
-
-    Punishment = wp*passenger.punishment + dp*driver.punishment
-    """
     def get_fitness(self):
         """
             It is ensured that the route is a feasible route, in the generate route section
         """
         if self.fitness != None:
             return self.fitness
+
+        self.generate_route()
         self.fitness = 0
+
         for i in range(GA.row_size):
             current_route = self.routes[i]
             vehicle = deepcopy(GA.vehicles[i])
-            vehicle.passenger_dict = {x: deepcopy(GA.passengers[x]) for x in self.chromo[i][1:] if self.chromo[i][x]!=0}
+            vehicle.passengers_dict = {x: deepcopy(GA.passengers[x]) for x in range(1, len(self.chromo[i])) if self.chromo[i][x]!=0}
 
             curr_station_id = 0   # Depot is supposed to have index 0
             curr_time = 0
@@ -119,19 +107,19 @@ class Chromo(object):
             
             driving_time += GA.get_time_distance(curr_station_id, pid)
             
-            for p in vehicle.passenger_dict.values():
-                self.fitness += p.get_pickup_punishment() + p.get_dropoff_punishment + p.get_ridein_punishment()
+            for p in vehicle.passengers_dict.values():
+                self.fitness += p.get_pickup_punishment() + p.get_dropoff_punishment() + p.get_ridein_punishment()
             # ! An ugly part
             self.fitness += driving_time * DRIVING_PUNISHMENT
         
         return self.fitness
 
     # Mutate based on a row
-    def row_mutate(self, mother: Chromo, x=0.6):
+    def row_mutate(self, mother, x=0.6):
         child = Chromo()
         father = self
 
-        selected_row = random.randint(0, GA.row_size)
+        selected_row = random.randint(0, GA.row_size-1)
 
         for r in range(GA.row_size):
             for c in range(GA.column_size):
@@ -172,33 +160,35 @@ class Chromo(object):
 
     def calibrate(self, selected_row=0):
         other_rows = self.chromo[0:selected_row] + self.chromo[selected_row+1: GA.column_size]
-        other_rows_ids = list(range(GA.row_size))
-        other_rows_ids.remove(selected_row)
+        other_rows_ids = list(range(0, selected_row)) + list(range(selected_row+1, GA.row_size))
+        # other_rows_ids.remove(selected_row)
 
-        for c in range(GA.column_size):
-            if c < len(GA.passengers):
-                if self.chromo[selected_row][c] == 0:
-                    if not any([r[c] for r in other_rows]):
+        for c in range(1, GA.column_size):
+            if self.chromo[selected_row][c] == 0:
+                if not any([r[c] for r in other_rows]):
+                    selected_cells = [o for o in other_rows_ids if self.chromo[o][c]==1]
+                    if len(selected_cells):
+                        random_row = random.choice(selected_cells)
+                    else:
                         random_row = random.choice(other_rows_ids)
-                        self.chromo[random_row][c] = 1
+                    for r in range(GA.r):
+                        self.chromo[r][c] = 0
 
-                elif self.chromo[selected_row][c] == 1:
-                    for r in other_rows_ids:
-                        self.chromo[r][c] = 0        
+                    self.chromo[random_row][c] = 1
 
-        # return
+            elif self.chromo[selected_row][c] == 1:
+                for r in other_rows_ids:
+                    self.chromo[r][c] = 0     
+        # self.print_chromo()   
 
     def gen_random(self, ones=1.00, zeros=1.00):
         self.chromo = [random.choices([0, 1], weights=(zeros, ones), k=GA.column_size) for _ in range(GA.row_size)]
-        """
-            len([...]) = 12               = random.choices([0, 1], weights=(ones, zeros), k=len(GA.stations)):
-            chromo = [], rchoices = [0,1,1,1] 
-            chromo = [[0,1,1,1]], rchoices = [1,0,0,1]
-            chromo = [ 
-                       [0,1,1,1], 
-                       [1,0,0,1]
-                     ]
-        """
+
+    def print_chromo(self):
+        for r in self.chromo:
+            for c in r:
+                print(c, end=' ')
+            print()
 
 
 class GA:
@@ -207,14 +197,18 @@ class GA:
     stations = {}
     gas_stations = []
     r, c = 0, 0
+    elite = None
 
     # Constructor
-    def __init__(self, input_file="testinstance", population_size=100, mutation_ratio=0.05, new_to_old_probability=0.5, passengers_count=5, vehicles_count=3, beta=1):
+    def __init__(self, input_file="testinstance", parameters_sheet="5passenger parameters", population_size=40, mutation_ratio=0.05, new_to_old_probability=0.5, passengers_count=5, vehicles_count=3, beta=1):
+        self.__time = time.time()
+        
         self.input_file = input_file
         self.population_size = population_size
         self.mutation_ratio = mutation_ratio
         self.new_to_old_probability = new_to_old_probability
         self.beta = beta
+        self.parameters_sheet = parameters_sheet
 
         self.population = []
         self.new_population = []
@@ -222,7 +216,7 @@ class GA:
 
         self.passengers_count = passengers_count
         self.vehicles_count = vehicles_count
-        GA.vehicles = {i: Vehicle(location=0, time=0, seats=2) for i in range(vehicles_count)}
+        GA.vehicles = {i: Vehicle(location=0, time=0, seats=8) for i in range(vehicles_count)}
 
         self.parse_input()
 
@@ -234,21 +228,26 @@ class GA:
             self.gen_population(n=new_gen_size)
             # population is updated, probabilities are updated
             self.select_for_next_gen()
+            self.check_best()
+            if _iter%10 == 0:
+                print("In iteration", _iter)
 
-        self.out()
+        self.out(self.elite)
 
     # Todo: Select two random parents
     def select_parents(self):
-        ch1, ch2 = Chromo(), Chromo()
-        return ch1, ch2
+        children = random.sample(self.population, 2)
+        return children[0], children[1]
 
     def gen_population(self, n):
         # Fitnesses can be found
+        self.new_population = []
         for _ in range(n):
             p1, p2 = self.select_parents()
             child = p1.row_mutate(mother=p2)
             child.column_mutate()
-            self.population.append(child)
+            self.new_population.append(child)
+        self.population += self.new_population
 
     # TODO: Select the survivors to the next generation
     # ! All chromosomes have the same weight according to the oldness or newness of the generation
@@ -257,7 +256,7 @@ class GA:
         self.population = list(random.choices(self.population, weights=weights, k=self.population_size))
 
     def gen_init_population(self):
-        for _ in range(self.population_size):
+        for i in range(self.population_size):
             ch = Chromo()
             ch.gen_random(zeros=GA.row_size)
             ch.calibrate()
@@ -266,42 +265,40 @@ class GA:
 
     @staticmethod
     def generate_passenger(values):
-        if type<=1:
-            _id = values[0]
-            pickup_st_id = values[1]
-            dropoff_st_id = values[2]
-            pickup_early = values[3]
-            pickup_late = values[4]
-            dropoff_early = values[5]
-            dropoff_late = values[6]
-            _dstop = values[7]
-            _count = values[9]
-            
-            pickup_st = deepcopy(GA.stations[pickup_st_id])
-            pickup_st.early = pickup_early
-            pickup_st.late = pickup_late
-            pickup_st.dstop = _dstop
-            pickup_st.type = types.PICKUP
+        _id = int(values[0])
+        pickup_st_id = int(values[1])
+        dropoff_st_id = int(values[2])
+        pickup_early = int(values[3])
+        pickup_late = int(values[4])
+        dropoff_early = int(values[5])
+        dropoff_late = int(values[6])
+        _dstop = int(values[7])
+        _count = int(values[9])
+        
+        pickup_st = deepcopy(GA.stations[pickup_st_id])
+        pickup_st.early = pickup_early
+        pickup_st.late = pickup_late
+        pickup_st.dstop = _dstop
+        pickup_st.type = types.PICKUP
 
-            dropoff_st = deepcopy(GA.stations[dropoff_st_id])
-            dropoff_st.early = dropoff_early
-            dropoff_st.late = dropoff_late
-            dropoff_st.dstop = _dstop
-            dropoff_st.type = types.PICKUP
-            
-            passenger = Passenger(_id=_id, count=_count, pickup_station=pickup_st, dropoff_station=dropoff_st)
+        dropoff_st = deepcopy(GA.stations[dropoff_st_id])
+        dropoff_st.early = dropoff_early
+        dropoff_st.late = dropoff_late
+        dropoff_st.dstop = _dstop
+        dropoff_st.type = types.PICKUP
+        
+        passenger = Passenger(_id=_id, count=_count, pickup_station=pickup_st, dropoff_station=dropoff_st)
 
-            return passenger
+        return passenger
 
-        return None
 # [Depot] [Gas] [Dropoff/Pickup]
 # 001 drop  000 pickup  110 Depot with Gas station
 
     def parse_input(self):
         xlsx_file = Path(".", self.input_file)
         wb_object = openpyxl.load_workbook(xlsx_file)
-        distance_sheet = wb_object['5passenger parameters']
-        parameters_sheet = wb_object['travel time matrix']
+        distance_sheet = wb_object['travel time matrix']
+        parameters_sheet = wb_object[self.parameters_sheet]
         parameters_values = list(parameters_sheet.values)
 
         # Update distances
@@ -322,17 +319,21 @@ class GA:
         GA.column_size = len(GA.passengers)+1
         GA.row_size = len(GA.vehicles)
 
-    def out(self):
+    def out(self, message):
+        print("Time is {0:.2f} seconds".format(time.time()-self.__time))
         print("Iterations done!")
+        print("Message:", message)
 
     @staticmethod
     def get_time_distance(i, j):
         return GA.stations[i].distances[j]
 
-    """
-        population: [chormo, ...]
-        population = generate_first_generation(size, ....)
-        new_population = generate_new_generation(population, ...)
-        find_fitnesses(new_population) ->
-            population = select_based_on_fitness(new_population)
-    """
+    def check_best(self):
+        best_fitness_so_far = self.population[0].get_fitness()
+
+        for i in range(1, self.population_size):
+            best_fitness_so_far = min(best_fitness_so_far, self.population[i].get_fitness())
+        if self.elite is None:
+            self.elite = best_fitness_so_far
+        else:
+            self.elite = min(self.elite, best_fitness_so_far)

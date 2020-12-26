@@ -33,8 +33,8 @@ class Passenger:
         if self.status == Status.WAITING:
             self.status = Status.IN_CAR
 
-        if self.status == Status.IN_CAR:
-            self.status = Status.WAITING
+        elif self.status == Status.IN_CAR:
+            self.status = Status.DROPPED
 
         return self.status
 
