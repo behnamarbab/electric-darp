@@ -1,5 +1,5 @@
 class Station:
-    def __init__(self, _id, early, late, dstop, _type=0):
+    def __init__(self, _id, early=None, late=None, dstop=None, _type=0):
         self.id = _id
         self.early = early
         self.late = late
@@ -9,3 +9,6 @@ class Station:
 
     def set_distances(self, distances):
         self.distances = distances
+
+    def __lt__(self, other):
+        return self.id < other.id
