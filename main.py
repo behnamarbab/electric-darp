@@ -8,7 +8,7 @@ for i in range(len(test_sheets)):
 
 sheet_num = int(input())
 
-test1 = GA(input_file="testinstance.xlsx", parameters_sheet=test_sheets[sheet_num], population_size=50)
+test1 = GA(input_file="testinstance.xlsx", parameters_sheet=test_sheets[sheet_num], population_size=50, vehicles_count=10)
 test1.run(iterations=1000, new_gen_size=40)
 
 # test1 = GA(input_file="testinstance.xlsx", parameters_sheet=test_sheets[0], population_size=50)
